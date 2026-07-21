@@ -1,0 +1,11 @@
+{
+  // Points Pylance/Pyright to the project's virtual environment interpreter
+  // so that packages installed via pip inside fafanuaEnv are resolved correctly.
+  "python.defaultInterpreterPath": "${workspaceFolder}/BACKEND/fafanuaEnv/bin/python",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/BACKEND"
+  ],
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  }
+}
