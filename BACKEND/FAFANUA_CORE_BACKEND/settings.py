@@ -10,7 +10,13 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+# Load environment variables from .env file (if present)
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,9 +43,18 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # Third-party
+    'rest_framework',
+    'corsheaders',
+    'drf_yasg',
+    # Local apps
+    'storyteller',
 ]
 
+
 MIDDLEWARE = [
+    # CorsMiddleware MUST come before CommonMiddleware
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -120,3 +135,20 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ---------------------------------------------------------------------------
+# CORS — allow all origins in local dev. Tighten this before deploying.
+# ---------------------------------------------------------------------------
+CORS_ALLOW_ALL_ORIGINS = True
+
+# ---------------------------------------------------------------------------
+# Django REST Framework
+# ---------------------------------------------------------------------------
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+    ],
+}
