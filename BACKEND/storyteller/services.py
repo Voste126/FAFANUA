@@ -162,3 +162,132 @@ class WatsonxService:
             )
 
         return slides
+
+    # ------------------------------------------------------------------ #
+    # Slide refinement
+    # ------------------------------------------------------------------ #
+
+    _REFINE_PROMPT = """\
+You are a Technical Storyteller refining a single presentation slide.
+You will receive the CURRENT slide as JSON and a user INSTRUCTION describing
+what should change.
+
+Rules you MUST follow without exception:
+1. Output ONLY a single raw JSON object. No markdown fences, no prose, no array.
+2. The JSON object must have exactly three keys:
+   - "title"         : string  — a concise, punchy slide title.
+   - "bullet_points" : array   — 3 to 5 short, audience-friendly bullet points.
+   - "theme_variant" : string  — MUST be one of: "warm", "bold", or "clean".
+3. Apply the user's instruction faithfully while keeping the slide coherent.
+4. If the instruction does not mention the theme, keep the current theme.
+
+Begin your output immediately with the opening '{' of the JSON object.
+"""
+
+    def refine_slide(
+        self,
+        current_slide_data: dict[str, Any],
+        instruction: str,
+    ) -> dict[str, Any]:
+        """Refines a single slide according to user feedback via Granite.
+
+        Constructs a prompt that provides the model with the current slide
+        content and a natural-language instruction, then returns the
+        rewritten slide as a Python dict.
+
+        Args:
+            current_slide_data: Dict with keys ``title``, ``bullet_points``,
+                and ``theme_variant`` representing the slide to refine.
+            instruction: Free-text feedback from the user describing the
+                desired change (e.g. "Make this less technical").
+
+        Returns:
+            A dict containing the refined ``title``, ``bullet_points``, and
+            ``theme_variant``.
+
+        Raises:
+            RuntimeError: If the watsonx.ai API call itself fails.
+            ValueError: If the model response cannot be parsed as valid JSON
+                or is not a JSON object.
+        """
+        credentials = Credentials(url=self._url, api_key=self._api_key)
+
+        model = ModelInference(
+            model_id=self._model_id,
+            credentials=credentials,
+            project_id=self._project_id,
+            params={
+                GenParams.MAX_NEW_TOKENS: 1024,
+                GenParams.TEMPERATURE: 0.5,
+                GenParams.TOP_P: 0.9,
+                GenParams.STOP_SEQUENCES: [],
+            },
+        )
+
+        current_json = json.dumps(current_slide_data, indent=2)
+
+        prompt: str = (
+            f"{self._REFINE_PROMPT}\n\n"
+            f"CURRENT SLIDE:\n"
+            f"---\n"
+            f"{current_json}\n"
+            f"---\n\n"
+            f"USER INSTRUCTION:\n"
+            f"---\n"
+            f"{instruction}\n"
+            f"---\n\n"
+            f"REFINED SLIDE JSON:"
+        )
+
+        logger.info(
+            "Sending refinement request to watsonx.ai [model=%s, instruction_length=%d]",
+            self._model_id,
+            len(instruction),
+        )
+
+        try:
+            response: str = model.generate_text(prompt=prompt)
+        except Exception as exc:
+            logger.exception("watsonx.ai refinement API call failed: %s", exc)
+            raise RuntimeError(
+                f"The IBM watsonx.ai API returned an error: {exc}"
+            ) from exc
+
+        raw_text: str = response.strip()
+        logger.debug("Raw refinement response: %s", raw_text)
+
+        # Guard: strip accidental markdown code fences.
+        if raw_text.startswith("```"):
+            raw_text = raw_text.split("```")[1]
+            if raw_text.startswith("json"):
+                raw_text = raw_text[4:]
+            raw_text = raw_text.strip()
+
+        try:
+            refined: dict[str, Any] = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            logger.error(
+                "Failed to parse refinement response as JSON. Raw: %s", raw_text
+            )
+            raise ValueError(
+                f"Model did not return valid JSON. Parse error: {exc}. "
+                f"Raw response (first 500 chars): {raw_text[:500]}"
+            ) from exc
+
+        # The model may occasionally wrap the object in an array.
+        if isinstance(refined, list):
+            if len(refined) == 1 and isinstance(refined[0], dict):
+                refined = refined[0]
+            else:
+                raise ValueError(
+                    f"Expected a single JSON object, but received an array "
+                    f"with {len(refined)} elements."
+                )
+
+        if not isinstance(refined, dict):
+            raise ValueError(
+                f"Expected a JSON object from the model, but received: "
+                f"{type(refined).__name__}"
+            )
+
+        return refined

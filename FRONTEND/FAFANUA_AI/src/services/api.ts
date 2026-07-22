@@ -6,7 +6,7 @@
  */
 
 import axios, { AxiosError } from 'axios';
-import type { Slide, ApiError } from '../types/slide';
+import type { Presentation, ApiError } from '../types/slide';
 
 /** Axios instance pre-configured for the Django REST API. */
 const apiClient = axios.create({
@@ -18,27 +18,66 @@ const apiClient = axios.create({
 });
 
 /**
+ * Helper to extract a human-readable error message from an Axios error.
+ */
+function extractErrorMessage(err: unknown): string {
+  const axiosErr = err as AxiosError<ApiError>;
+  if (axiosErr.response?.data?.detail) {
+    return axiosErr.response.data.detail;
+  }
+  return (
+    axiosErr.message ||
+    'An unexpected error occurred. Is the Django server running?'
+  );
+}
+
+/**
  * Sends technical content to the Django /api/generate/ endpoint and returns
- * a structured array of presentation slides.
+ * a persisted Presentation object containing structured slides.
  *
  * @param content - Dense technical text to transform into slides.
- * @returns Promise resolving to an array of {@link Slide} objects.
- * @throws An {@link ApiError}-shaped object if the server returns a non-2xx status.
+ * @returns Promise resolving to a {@link Presentation} object.
+ * @throws An error with the server's detail message if the request fails.
  */
-export async function generatePresentation(content: string): Promise<Slide[]> {
+export async function generatePresentation(
+  content: string,
+): Promise<Presentation> {
   try {
-    const response = await apiClient.post<Slide[]>('generate/', {
+    const response = await apiClient.post<Presentation>('generate/', {
       technical_content: content,
     });
     return response.data;
   } catch (err) {
-    const axiosErr = err as AxiosError<ApiError>;
-    // Re-throw with the server's detail message if available, otherwise rethrow raw.
-    if (axiosErr.response?.data?.detail) {
-      throw new Error(axiosErr.response.data.detail);
-    }
-    throw new Error(
-      axiosErr.message || 'An unexpected error occurred. Is the Django server running?'
-    );
+    throw new Error(extractErrorMessage(err));
+  }
+}
+
+/**
+ * Fetches the full list of previously generated presentations,
+ * ordered newest-first.
+ *
+ * @returns Promise resolving to an array of {@link Presentation} objects.
+ */
+export async function fetchHistory(): Promise<Presentation[]> {
+  try {
+    const response = await apiClient.get<Presentation[]>('history/');
+    return response.data;
+  } catch (err) {
+    throw new Error(extractErrorMessage(err));
+  }
+}
+
+/**
+ * Fetches a single presentation by its UUID, including all nested slides.
+ *
+ * @param id - The UUID of the presentation to retrieve.
+ * @returns Promise resolving to a {@link Presentation} object.
+ */
+export async function fetchPresentation(id: string): Promise<Presentation> {
+  try {
+    const response = await apiClient.get<Presentation>(`history/${id}/`);
+    return response.data;
+  } catch (err) {
+    throw new Error(extractErrorMessage(err));
   }
 }

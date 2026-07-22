@@ -6,9 +6,10 @@ URL routing for the storyteller app.
 All routes are mounted under the /api/ prefix by the root URLconf
 (FAFANUA_CORE_BACKEND/urls.py), making the effective public URLs:
 
-    POST  /api/generate/
-    GET   /api/history/
-    GET   /api/history/<uuid:pk>/
+    POST   /api/generate/
+    GET    /api/history/
+    GET    /api/history/<uuid:pk>/
+    PATCH  /api/history/<uuid:presentation_pk>/slides/<int:slide_id>/refine/
 """
 
 from django.urls import path
@@ -17,6 +18,7 @@ from .views import (
     GeneratePresentationView,
     PresentationDetailView,
     PresentationListView,
+    SlideRefineView,
 )
 
 app_name = "storyteller"
@@ -36,5 +38,10 @@ urlpatterns = [
         "history/<uuid:pk>/",
         PresentationDetailView.as_view(),
         name="presentation-detail",
+    ),
+    path(
+        "history/<uuid:presentation_pk>/slides/<int:slide_id>/refine/",
+        SlideRefineView.as_view(),
+        name="slide-refine",
     ),
 ]

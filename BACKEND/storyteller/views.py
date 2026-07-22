@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Presentation, Slide
-from .serializers import PresentationSerializer
+from .serializers import PresentationSerializer, SlideSerializer
 from .services import WatsonxService
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,22 @@ _presentation_response_schema = openapi.Schema(
             format="date-time",
             description="ISO-8601 last-updated timestamp.",
         ),
+    },
+)
+
+_refine_request_schema = openapi.Schema(
+    type=openapi.TYPE_OBJECT,
+    required=["instruction"],
+    properties={
+        "instruction": openapi.Schema(
+            type=openapi.TYPE_STRING,
+            description=(
+                "Natural-language feedback describing how the slide should be "
+                "rewritten (e.g. 'Make this less technical', 'Add a point about "
+                "security', 'Change the theme to bold')."
+            ),
+            example="Make the bullet points shorter and more punchy.",
+        )
     },
 )
 
@@ -446,4 +462,245 @@ class PresentationDetailView(APIView):
             pk=pk,
         )
         serializer = PresentationSerializer(presentation)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Slide refinement
+# ---------------------------------------------------------------------------
+
+
+class SlideRefineView(APIView):
+    """PATCH /api/history/<uuid>/slides/<id>/refine/ — AI-powered slide rewrite.
+
+    Accepts a natural-language ``instruction`` and uses IBM Granite to rewrite
+    a single slide. The updated content is persisted and the serialised slide
+    is returned.
+
+    HTTP Methods:
+        PATCH
+
+    Request Body (JSON)::
+
+        {
+            "instruction": "Make the bullet points shorter and more punchy."
+        }
+
+    Successful Response — 200 OK::
+
+        {
+            "id": 7,
+            "slide_order": 2,
+            "title": "...",
+            "bullet_points": ["...", "..."],
+            "theme_variant": "bold"
+        }
+
+    Error Responses:
+        - **400 Bad Request** — ``instruction`` is missing or blank.
+        - **404 Not Found** — Presentation or slide does not exist.
+        - **502 Bad Gateway** — watsonx.ai API returned an upstream error.
+        - **500 Internal Server Error** — Unexpected failure or unparseable model output.
+    """
+
+    @swagger_auto_schema(
+        operation_id="refine_slide",
+        operation_summary="Refine a single slide with AI feedback",
+        operation_description=(
+            "Sends a natural-language instruction to the IBM Granite model to "
+            "rewrite a specific slide within a saved presentation. The updated "
+            "slide is persisted to the database and returned. Examples of "
+            "instructions: 'Make this less technical', 'Add a point about "
+            "security', 'Use a bolder theme'."
+        ),
+        manual_parameters=[
+            openapi.Parameter(
+                "presentation_pk",
+                openapi.IN_PATH,
+                description="UUID of the parent presentation.",
+                type=openapi.TYPE_STRING,
+                format="uuid",
+                required=True,
+            ),
+            openapi.Parameter(
+                "slide_id",
+                openapi.IN_PATH,
+                description="Integer ID of the slide to refine.",
+                type=openapi.TYPE_INTEGER,
+                required=True,
+            ),
+        ],
+        request_body=_refine_request_schema,
+        responses={
+            200: openapi.Response(
+                description="Slide refined and persisted successfully.",
+                schema=_slide_schema,
+            ),
+            400: openapi.Response(
+                description="Bad Request — `instruction` is missing or blank.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="'instruction' is required and must not be blank.",
+                        )
+                    },
+                ),
+            ),
+            404: openapi.Response(
+                description="Not Found — presentation or slide does not exist.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(
+                            type=openapi.TYPE_STRING,
+                            example="Not found.",
+                        )
+                    },
+                ),
+            ),
+            502: openapi.Response(
+                description="Bad Gateway — IBM watsonx.ai API returned an upstream error.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(type=openapi.TYPE_STRING),
+                        "upstream_error": openapi.Schema(type=openapi.TYPE_STRING),
+                    },
+                ),
+            ),
+            500: openapi.Response(
+                description="Internal Server Error — unparseable model output.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(type=openapi.TYPE_STRING),
+                        "parse_error": openapi.Schema(type=openapi.TYPE_STRING),
+                    },
+                ),
+            ),
+        },
+        tags=["Slide Refinement"],
+    )
+    def patch(self, request: Request, presentation_pk, slide_id) -> Response:
+        """Refine a single slide using AI-powered feedback.
+
+        Args:
+            request: The DRF request object. Expects a JSON body with the key
+                ``instruction``.
+            presentation_pk: UUID of the parent presentation.
+            slide_id: Integer primary key of the slide to refine.
+
+        Returns:
+            A :class:`rest_framework.response.Response` containing either:
+
+            - A serialised ``Slide`` dict on success (HTTP 200).
+            - An error dict with a ``detail`` key on failure (HTTP 400/404/500/502).
+        """
+        # ------------------------------------------------------------------ #
+        # 1. Input validation
+        # ------------------------------------------------------------------ #
+        instruction: str = request.data.get("instruction", "").strip()
+
+        if not instruction:
+            return Response(
+                {
+                    "detail": (
+                        "'instruction' is required and must not be blank. "
+                        "Describe how you'd like this slide to be rewritten."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ------------------------------------------------------------------ #
+        # 2. Look up the presentation and slide
+        # ------------------------------------------------------------------ #
+        presentation = get_object_or_404(Presentation, pk=presentation_pk)
+        slide = get_object_or_404(
+            Slide,
+            pk=slide_id,
+            presentation=presentation,
+        )
+
+        # Build the current slide data dict for the service layer.
+        current_slide_data = {
+            "title": slide.title,
+            "bullet_points": slide.bullet_points,
+            "theme_variant": slide.theme_variant,
+        }
+
+        # ------------------------------------------------------------------ #
+        # 3. Delegate to the service layer
+        # ------------------------------------------------------------------ #
+        try:
+            service = WatsonxService()
+            refined = service.refine_slide(current_slide_data, instruction)
+
+        except EnvironmentError as exc:
+            logger.error("WatsonxService configuration error: %s", exc)
+            return Response(
+                {"detail": f"Server configuration error: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        except RuntimeError as exc:
+            logger.error("watsonx.ai upstream error during refinement: %s", exc)
+            return Response(
+                {
+                    "detail": (
+                        "The AI service returned an error while refining the slide. "
+                        "Please try again in a moment."
+                    ),
+                    "upstream_error": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        except ValueError as exc:
+            logger.error("JSON parse error from refinement response: %s", exc)
+            return Response(
+                {
+                    "detail": (
+                        "The AI model returned an unexpected response format "
+                        "during refinement. This is likely transient — please "
+                        "retry your request."
+                    ),
+                    "parse_error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # ------------------------------------------------------------------ #
+        # 4. Persist the refined slide
+        # ------------------------------------------------------------------ #
+        try:
+            slide.title = refined.get("title", slide.title)
+            slide.bullet_points = refined.get("bullet_points", slide.bullet_points)
+            slide.theme_variant = refined.get("theme_variant", slide.theme_variant)
+            slide.save()
+
+        except Exception as exc:
+            logger.exception("Failed to persist refined slide: %s", exc)
+            return Response(
+                {
+                    "detail": (
+                        "The slide was refined successfully by the AI, but "
+                        "could not be saved to the database."
+                    ),
+                    "refined_slide": refined,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # ------------------------------------------------------------------ #
+        # 5. Return the updated slide
+        # ------------------------------------------------------------------ #
+        serializer = SlideSerializer(slide)
+        logger.info(
+            "Successfully refined slide %d (presentation %s).",
+            slide.id,
+            presentation.id,
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
