@@ -106,3 +106,51 @@ export async function refineSlide(
     throw new Error(extractErrorMessage(err));
   }
 }
+
+/**
+ * Downloads a presentation as a PDF file.
+ * The backend returns binary PDF data, so we use `responseType: 'blob'`
+ * and trigger a browser download via a temporary object URL.
+ *
+ * @param presentationId - UUID of the presentation to export.
+ */
+export async function exportPresentation(
+  presentationId: string,
+): Promise<void> {
+  try {
+    const response = await apiClient.get(`history/${presentationId}/export/`, {
+      responseType: 'blob',
+    });
+
+    // Create a temporary URL for the blob and trigger download
+    const blob = new Blob([response.data], { type: 'application/pdf' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fafanua_presentation_${presentationId}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+
+    // Clean up
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    // When responseType is 'blob', error responses are also blobs —
+    // attempt to parse JSON from the blob for a meaningful message.
+    const axiosErr = err as AxiosError;
+    if (axiosErr.response?.data instanceof Blob) {
+      try {
+        const text = await axiosErr.response.data.text();
+        const json = JSON.parse(text) as ApiError;
+        if (json.detail) throw new Error(json.detail);
+      } catch (parseErr) {
+        // If we couldn't parse JSON, fall through to the generic handler
+        if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') {
+          throw parseErr;
+        }
+      }
+    }
+    throw new Error(extractErrorMessage(err));
+  }
+}
+

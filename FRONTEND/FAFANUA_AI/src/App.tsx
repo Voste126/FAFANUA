@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Plus,
   ArrowLeft,
+  Download,
 } from 'lucide-react';
 
 import {
@@ -23,6 +24,7 @@ import {
   fetchHistory,
   fetchPresentation,
   refineSlide,
+  exportPresentation,
 } from './services/api';
 import SlideCard from './components/SlideCard';
 import SkeletonLoader from './components/SkeletonLoader';
@@ -95,6 +97,9 @@ export default function App() {
   // ----- Refinement modal state -----
   const [isRefinementModalOpen, setIsRefinementModalOpen] = useState<boolean>(false);
   const [slideToRefine, setSlideToRefine] = useState<Slide | null>(null);
+
+  // ----- Export state -----
+  const [isExporting, setIsExporting] = useState<boolean>(false);
 
   // ----- Load history on mount -----
   const loadHistory = useCallback(async () => {
@@ -205,6 +210,22 @@ export default function App() {
     );
 
     handleCloseRefineModal();
+  };
+
+  // ----- Export handler -----
+
+  const handleExport = async () => {
+    if (!activePresentationId) return;
+
+    setIsExporting(true);
+    setError(null);
+    try {
+      await exportPresentation(activePresentationId);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const isDisabled = loading || !content.trim();
@@ -419,33 +440,64 @@ export default function App() {
                         : 'AI output will appear here'}
                     </p>
                   </div>
-                  {slides.length > 0 && !viewingHistory && (
-                    <button
-                      id="clear-slides-btn"
-                      onClick={() => {
-                        setSlides([]);
-                        setActivePresentationId(null);
-                      }}
-                      className="text-xs text-white/30 hover:text-white/60 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
-                    >
-                      Clear
-                    </button>
-                  )}
-                  {viewingHistory && (
-                    <button
-                      id="back-to-generate-btn"
-                      onClick={handleNewPresentation}
-                      className="
-                        flex items-center gap-1.5 px-3 py-1.5 rounded-lg
-                        text-xs font-medium text-white/40
-                        hover:text-white/70 hover:bg-white/[0.05]
-                        transition-all duration-200
-                      "
-                    >
-                      <Plus className="w-3 h-3" />
-                      New presentation
-                    </button>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Export to PDF button — visible when we have an active presentation with slides */}
+                    {activePresentationId && slides.length > 0 && (
+                      <button
+                        id="export-pdf-btn"
+                        onClick={handleExport}
+                        disabled={isExporting}
+                        className="
+                          flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                          text-xs font-semibold
+                          text-amber-400/70 border border-amber-500/25 bg-amber-500/[0.06]
+                          hover:text-amber-300 hover:border-amber-500/40 hover:bg-amber-500/[0.10]
+                          disabled:opacity-40 disabled:cursor-not-allowed
+                          transition-all duration-200
+                        "
+                        title="Export presentation as PDF"
+                      >
+                        {isExporting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Exporting…
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Export PDF</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {slides.length > 0 && !viewingHistory && (
+                      <button
+                        id="clear-slides-btn"
+                        onClick={() => {
+                          setSlides([]);
+                          setActivePresentationId(null);
+                        }}
+                        className="text-xs text-white/30 hover:text-white/60 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
+                      >
+                        Clear
+                      </button>
+                    )}
+                    {viewingHistory && (
+                      <button
+                        id="back-to-generate-btn"
+                        onClick={handleNewPresentation}
+                        className="
+                          flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                          text-xs font-medium text-white/40
+                          hover:text-white/70 hover:bg-white/[0.05]
+                          transition-all duration-200
+                        "
+                      >
+                        <Plus className="w-3 h-3" />
+                        New presentation
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Output area */}
