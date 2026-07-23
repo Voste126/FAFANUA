@@ -22,10 +22,12 @@ import {
   generatePresentation,
   fetchHistory,
   fetchPresentation,
+  refineSlide,
 } from './services/api';
 import SlideCard from './components/SlideCard';
 import SkeletonLoader from './components/SkeletonLoader';
 import HistorySidebar from './components/HistorySidebar';
+import RefinementModal from './components/RefinementModal';
 import type { Slide, Presentation } from './types/slide';
 
 // ---------------------------------------------------------------------------
@@ -89,6 +91,10 @@ export default function App() {
   // ----- Viewing mode: are we looking at a historic presentation? -----
   const [viewingHistory, setViewingHistory] = useState<boolean>(false);
   const [historyOriginalText, setHistoryOriginalText] = useState<string>('');
+
+  // ----- Refinement modal state -----
+  const [isRefinementModalOpen, setIsRefinementModalOpen] = useState<boolean>(false);
+  const [slideToRefine, setSlideToRefine] = useState<Slide | null>(null);
 
   // ----- Load history on mount -----
   const loadHistory = useCallback(async () => {
@@ -170,6 +176,35 @@ export default function App() {
   const handleSample = () => {
     setContent(SAMPLE_CONTENT);
     setError(null);
+  };
+
+  // ----- Refinement handlers -----
+
+  const handleOpenRefineModal = (slide: Slide) => {
+    setSlideToRefine(slide);
+    setIsRefinementModalOpen(true);
+  };
+
+  const handleCloseRefineModal = () => {
+    setIsRefinementModalOpen(false);
+    setSlideToRefine(null);
+  };
+
+  const handleRefineSubmit = async (instruction: string) => {
+    if (!activePresentationId || !slideToRefine) return;
+
+    const updatedSlide = await refineSlide(
+      activePresentationId,
+      slideToRefine.id,
+      instruction,
+    );
+
+    // Patch the local slides array — replace only the refined slide
+    setSlides((prev) =>
+      prev.map((s) => (s.id === updatedSlide.id ? updatedSlide : s)),
+    );
+
+    handleCloseRefineModal();
   };
 
   const isDisabled = loading || !content.trim();
@@ -419,7 +454,16 @@ export default function App() {
                   {loading && <SkeletonLoader />}
                   {!loading && slides.length === 0 && <EmptyState />}
                   {!loading && slides.map((slide, index) => (
-                    <SlideCard key={`${activePresentationId ?? 'new'}-${index}`} slide={slide} index={index} />
+                    <SlideCard
+                      key={`${activePresentationId ?? 'new'}-${slide.id ?? index}`}
+                      slide={slide}
+                      index={index}
+                      onRefineClick={
+                        activePresentationId
+                          ? () => handleOpenRefineModal(slide)
+                          : undefined
+                      }
+                    />
                   ))}
                 </div>
               </section>
@@ -432,6 +476,16 @@ export default function App() {
       {/* ================================================================ */}
       {/* Footer                                                            */}
       {/* ================================================================ */}
+      {/* ================================================================ */}
+      {/* Refinement Modal                                                  */}
+      {/* ================================================================ */}
+      <RefinementModal
+        isOpen={isRefinementModalOpen}
+        onClose={handleCloseRefineModal}
+        slide={slideToRefine}
+        onSubmit={handleRefineSubmit}
+      />
+
       <footer className="border-t border-white/[0.05] px-6 py-3">
         <p className="text-center text-xs text-white/20">
           Fafanua · IBM AI Builders July Challenge · Built by Steve Austine Kamunge

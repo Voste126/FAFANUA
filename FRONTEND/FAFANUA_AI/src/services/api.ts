@@ -6,7 +6,7 @@
  */
 
 import axios, { AxiosError } from 'axios';
-import type { Presentation, ApiError } from '../types/slide';
+import type { Presentation, Slide, ApiError } from '../types/slide';
 
 /** Axios instance pre-configured for the Django REST API. */
 const apiClient = axios.create({
@@ -76,6 +76,31 @@ export async function fetchHistory(): Promise<Presentation[]> {
 export async function fetchPresentation(id: string): Promise<Presentation> {
   try {
     const response = await apiClient.get<Presentation>(`history/${id}/`);
+    return response.data;
+  } catch (err) {
+    throw new Error(extractErrorMessage(err));
+  }
+}
+
+/**
+ * Sends a refinement instruction for a single slide to the AI backend.
+ * Uses PATCH to update only the targeted slide, leaving the rest untouched.
+ *
+ * @param presentationId - UUID of the parent presentation.
+ * @param slideId        - Database ID of the slide to refine.
+ * @param instruction    - Natural-language refinement instruction from the user.
+ * @returns Promise resolving to the updated {@link Slide} object.
+ */
+export async function refineSlide(
+  presentationId: string,
+  slideId: number,
+  instruction: string,
+): Promise<Slide> {
+  try {
+    const response = await apiClient.patch<Slide>(
+      `history/${presentationId}/slides/${slideId}/refine/`,
+      { instruction },
+    );
     return response.data;
   } catch (err) {
     throw new Error(extractErrorMessage(err));

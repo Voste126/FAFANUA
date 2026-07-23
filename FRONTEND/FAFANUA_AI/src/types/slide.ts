@@ -11,9 +11,9 @@ export type ThemeVariant = 'warm' | 'bold' | 'clean';
 /** A single presentation slide as returned by the Granite model. */
 export interface Slide {
   /** Auto-increment ID assigned by the database. */
-  id?: number;
+  id: number;
   /** Zero-based ordering index within the presentation. */
-  slide_order?: number;
+  slide_order: number;
   /** Concise, punchy slide title. */
   title: string;
   /** 3–5 audience-friendly bullet points. */
