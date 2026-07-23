@@ -7,6 +7,7 @@
 
 import { Wand2 } from 'lucide-react';
 import type { Slide, ThemeVariant } from '../types/slide';
+import MermaidDiagram from './MermaidDiagram';
 
 interface SlideCardProps {
   slide: Slide;
@@ -112,6 +113,13 @@ export default function SlideCard({ slide, index, onRefineClick }: SlideCardProp
           </li>
         ))}
       </ul>
+
+      {/* Mermaid diagram — rendered below bullets when the AI provides one */}
+      {slide.diagram_code && slide.diagram_code.trim() !== '' && (
+        <div className="mt-4 pt-4 border-t border-white/[0.06]">
+          <MermaidDiagram code={slide.diagram_code} />
+        </div>
+      )}
     </article>
   );
 }

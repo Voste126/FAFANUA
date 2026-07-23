@@ -296,6 +296,7 @@ class GeneratePresentationView(APIView):
                         title=slide_data.get("title", ""),
                         bullet_points=slide_data.get("bullet_points", []),
                         theme_variant=slide_data.get("theme_variant", "clean"),
+                        diagram_code=slide_data.get("diagram_code", ""),
                     )
                     for idx, slide_data in enumerate(slides)
                 ]
@@ -629,6 +630,7 @@ class SlideRefineView(APIView):
             "title": slide.title,
             "bullet_points": slide.bullet_points,
             "theme_variant": slide.theme_variant,
+            "diagram_code": slide.diagram_code,
         }
 
         # ------------------------------------------------------------------ #
@@ -679,6 +681,7 @@ class SlideRefineView(APIView):
             slide.title = refined.get("title", slide.title)
             slide.bullet_points = refined.get("bullet_points", slide.bullet_points)
             slide.theme_variant = refined.get("theme_variant", slide.theme_variant)
+            slide.diagram_code = refined.get("diagram_code", slide.diagram_code)
             slide.save()
 
         except Exception as exc:

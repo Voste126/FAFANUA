@@ -28,6 +28,7 @@ class SlideSerializer(serializers.ModelSerializer):
             "title",
             "bullet_points",
             "theme_variant",
+            "diagram_code",
         ]
         read_only_fields = fields
 

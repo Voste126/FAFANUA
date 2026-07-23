@@ -29,12 +29,18 @@ human-centered slide deck represented as a strict JSON array.
 
 Rules you MUST follow without exception:
 1. Output ONLY a raw JSON array. No markdown fences, no prose, no commentary.
-2. Every element of the array must be a JSON object with exactly three keys:
+2. Every element of the array must be a JSON object with exactly four keys:
    - "title"         : string  — a concise, punchy slide title.
    - "bullet_points" : array   — 3 to 5 short, audience-friendly bullet points.
    - "theme_variant" : string  — MUST be one of: "warm", "bold", or "clean".
      Assign themes meaningfully: "warm" for introductions/context, "bold" for
      key breakthroughs/results, "clean" for details/specifications.
+   - "diagram_code"  : string  — If this slide describes a process, workflow,
+     data flow, or system architecture, provide a VALID Mermaid.js diagram.
+     Use ONLY graph/flowchart syntax (e.g. "graph TD; A[Frontend] --> B[API];").
+     Keep node labels short (1-4 words), do NOT use special characters
+     (parentheses, quotes, brackets) inside labels, and use a maximum of 8 nodes.
+     If no diagram is appropriate for this slide, return an empty string "".
 3. Generate between 4 and 8 slides.
 4. Bullet points must be human-readable sentences, not raw code or jargon.
 
@@ -174,12 +180,19 @@ what should change.
 
 Rules you MUST follow without exception:
 1. Output ONLY a single raw JSON object. No markdown fences, no prose, no array.
-2. The JSON object must have exactly three keys:
+2. The JSON object must have exactly four keys:
    - "title"         : string  — a concise, punchy slide title.
    - "bullet_points" : array   — 3 to 5 short, audience-friendly bullet points.
    - "theme_variant" : string  — MUST be one of: "warm", "bold", or "clean".
+   - "diagram_code"  : string  — If this slide describes a process, workflow,
+     data flow, or system architecture, provide a VALID Mermaid.js diagram.
+     Use ONLY graph/flowchart syntax (e.g. "graph TD; A[Frontend] --> B[API];").
+     Keep node labels short (1-4 words), do NOT use special characters
+     (parentheses, quotes, brackets) inside labels, and use a maximum of 8 nodes.
+     If no diagram is appropriate, return an empty string "".
 3. Apply the user's instruction faithfully while keeping the slide coherent.
 4. If the instruction does not mention the theme, keep the current theme.
+5. If the instruction does not mention the diagram, keep the current diagram_code.
 
 Begin your output immediately with the opening '{' of the JSON object.
 """

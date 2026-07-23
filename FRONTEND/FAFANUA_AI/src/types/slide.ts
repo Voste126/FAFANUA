@@ -20,6 +20,8 @@ export interface Slide {
   bullet_points: string[];
   /** Visual theme variant — drives card styling. */
   theme_variant: ThemeVariant;
+  /** Optional Mermaid.js diagram code for visual rendering. */
+  diagram_code?: string;
 }
 
 /**

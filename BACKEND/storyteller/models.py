@@ -83,6 +83,11 @@ class Slide(models.Model):
         max_length=10,
         help_text='Visual theme: "warm", "bold", or "clean".',
     )
+    diagram_code = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional Mermaid.js diagram syntax for visual rendering.",
+    )
 
     class Meta:
         ordering = ["slide_order"]
