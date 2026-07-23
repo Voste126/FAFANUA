@@ -10,9 +10,16 @@ logic and external-API communication lives in services.py.
 
 import logging
 
+from io import BytesIO
+
 from django.db import transaction
+from django.http import HttpResponse
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import landscape, letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
 from rest_framework import status
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -707,3 +714,121 @@ class SlideRefineView(APIView):
             presentation.id,
         )
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PresentationExportView(APIView):
+    """
+    Exports a presentation as a downloadable landscape PDF document.
+    GET /api/history/<uuid:pk>/export/
+    """
+
+    @swagger_auto_schema(
+        operation_summary="Export presentation as PDF",
+        operation_description="Generates a downloadable landscape PDF of the presentation slides.",
+        responses={
+            200: openapi.Response(
+                description="Binary PDF file stream.",
+                schema=openapi.Schema(type=openapi.TYPE_FILE),
+            ),
+            404: "Presentation not found.",
+        },
+    )
+    def get(self, request: Request, pk: str) -> HttpResponse:
+        presentation = get_object_or_404(Presentation, pk=pk)
+        slides = list(presentation.slides.all())
+
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=landscape(letter),
+            leftMargin=36,
+            rightMargin=36,
+            topMargin=36,
+            bottomMargin=36,
+        )
+
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            "SlideTitle",
+            parent=styles["Heading1"],
+            fontName="Helvetica-Bold",
+            fontSize=22,
+            leading=26,
+            textColor=colors.HexColor("#1E293B"),
+            spaceAfter=14,
+        )
+
+        bullet_style = ParagraphStyle(
+            "SlideBullet",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=13,
+            leading=18,
+            textColor=colors.HexColor("#334155"),
+            spaceAfter=8,
+        )
+
+        badge_style = ParagraphStyle(
+            "SlideBadge",
+            parent=styles["Normal"],
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=12,
+            textColor=colors.HexColor("#64748B"),
+            spaceAfter=8,
+        )
+
+        story = []
+
+        for index, slide in enumerate(slides):
+            theme_name = slide.theme_variant.upper() if slide.theme_variant else "CLEAN"
+            story.append(
+                Paragraph(
+                    f"SLIDE {index + 1} &nbsp;&bull;&nbsp; {theme_name}",
+                    badge_style,
+                )
+            )
+
+            story.append(Paragraph(slide.title, title_style))
+            story.append(Spacer(1, 6))
+
+            for bullet in slide.bullet_points:
+                story.append(Paragraph(f"&bull;&nbsp;&nbsp;{bullet}", bullet_style))
+
+            if slide.diagram_code and slide.diagram_code.strip():
+                story.append(Spacer(1, 10))
+                diagram_style = ParagraphStyle(
+                    "DiagramCode",
+                    parent=styles["Code"],
+                    fontName="Courier",
+                    fontSize=9,
+                    leading=12,
+                    textColor=colors.HexColor("#475569"),
+                    backColor=colors.HexColor("#F8FAFC"),
+                    borderColor=colors.HexColor("#E2E8F0"),
+                    borderWidth=1,
+                    borderPadding=8,
+                    spaceAfter=10,
+                )
+                formatted_diagram = slide.diagram_code.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>")
+                story.append(
+                    Paragraph(
+                        f"<b>Diagram (Mermaid):</b><br/>{formatted_diagram}",
+                        diagram_style,
+                    )
+                )
+
+            if index < len(slides) - 1:
+                story.append(PageBreak())
+
+        doc.build(story)
+
+        pdf_value = buffer.getvalue()
+        buffer.close()
+
+        response = HttpResponse(pdf_value, content_type="application/pdf")
+        response["Content-Disposition"] = (
+            f'attachment; filename="fafanua_presentation_{presentation.id}.pdf"'
+        )
+        return response

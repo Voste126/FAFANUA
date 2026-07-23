@@ -17,6 +17,7 @@ from django.urls import path
 from .views import (
     GeneratePresentationView,
     PresentationDetailView,
+    PresentationExportView,
     PresentationListView,
     SlideRefineView,
 )
@@ -38,6 +39,11 @@ urlpatterns = [
         "history/<uuid:pk>/",
         PresentationDetailView.as_view(),
         name="presentation-detail",
+    ),
+    path(
+        "history/<uuid:pk>/export/",
+        PresentationExportView.as_view(),
+        name="presentation-export",
     ),
     path(
         "history/<uuid:presentation_pk>/slides/<int:slide_id>/refine/",

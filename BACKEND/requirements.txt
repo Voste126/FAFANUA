@@ -56,3 +56,7 @@ typing_extensions==4.16.0
 
 # ---- Environment variables ----
 python-dotenv==1.0.1
+
+# ---- PDF Generation ----
+reportlab==5.0.0
+pillow>=9.0.0

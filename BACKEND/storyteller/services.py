@@ -11,6 +11,7 @@ services handle external API communication.
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from ibm_watsonx_ai import Credentials
@@ -36,11 +37,18 @@ Rules you MUST follow without exception:
      Assign themes meaningfully: "warm" for introductions/context, "bold" for
      key breakthroughs/results, "clean" for details/specifications.
    - "diagram_code"  : string  — If this slide describes a process, workflow,
-     data flow, or system architecture, provide a VALID Mermaid.js diagram.
-     Use ONLY graph/flowchart syntax (e.g. "graph TD; A[Frontend] --> B[API];").
-     Keep node labels short (1-4 words), do NOT use special characters
-     (parentheses, quotes, brackets) inside labels, and use a maximum of 8 nodes.
-     If no diagram is appropriate for this slide, return an empty string "".
+      data flow, or system architecture, provide a VALID Mermaid.js diagram.
+      CRITICAL Mermaid rules:
+      a) Start with "graph TD" on its own, then use semicolons to separate statements.
+      b) Use single-letter or short alphanumeric node IDs with NO spaces or numbers
+         in the ID itself: A, B, C, SvcA — NOT "Service 1" as an ID.
+      c) Put human-readable labels inside square brackets: A[API Gateway]
+      d) Use ONLY "-->" for arrows. Do NOT use "---", "-.->" or other edge types.
+      e) Keep labels to 1-3 words. No special characters in labels (no parentheses,
+         quotes, colons, or semicolons inside the square brackets).
+      f) Maximum 6 nodes.
+      g) Example: "graph TD; A[Frontend] --> B[API Gateway]; B --> C[Backend]; C --> D[Database]"
+      If no diagram is appropriate for this slide, return an empty string "".
 3. Generate between 4 and 8 slides.
 4. Bullet points must be human-readable sentences, not raw code or jargon.
 
@@ -58,7 +66,7 @@ class WatsonxService:
         _model_id: The Granite model identifier to use for inference.
     """
 
-    _model_id: str = "ibm/granite-3-3-8b-instruct"
+    _model_id: str = os.environ.get("WATSONX_MODEL_ID", "ibm/granite-4-h-small")
 
     def __init__(self) -> None:
         """Initialises the service by securely loading credentials from env vars.
@@ -82,6 +90,7 @@ class WatsonxService:
         self._url: str = required_vars["WATSONX_URL"]          # type: ignore[assignment]
         self._api_key: str = required_vars["WATSONX_APIKEY"]   # type: ignore[assignment]
         self._project_id: str = required_vars["WATSONX_PROJECT_ID"]  # type: ignore[assignment]
+        self._model_id: str = os.environ.get("WATSONX_MODEL_ID", "ibm/granite-4-h-small")
 
     def generate_slides(self, technical_content: str) -> list[dict[str, Any]]:
         """Sends technical content to Granite and returns structured slide data.
@@ -167,7 +176,53 @@ class WatsonxService:
                 f"Expected a JSON array from the model, but received: {type(slides).__name__}"
             )
 
+        # Sanitise diagram_code in each slide for Mermaid v11 compatibility
+        for slide in slides:
+            if slide.get("diagram_code"):
+                slide["diagram_code"] = self._sanitize_diagram_code(
+                    slide["diagram_code"]
+                )
+
         return slides
+
+    # ------------------------------------------------------------------ #
+    # Mermaid diagram sanitisation
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _sanitize_diagram_code(code: str) -> str:
+        """Cleans up LLM-generated Mermaid syntax for Mermaid v11 compatibility.
+
+        Common issues fixed:
+        - Semicolons converted to newlines (more reliable in Mermaid v11).
+        - Trailing semicolons removed.
+        - Problematic characters stripped from bracket labels.
+        - Ensures 'graph TD' declaration is on its own line.
+        """
+        if not code or not code.strip():
+            return ""
+
+        code = code.strip()
+
+        # Convert semicolons to newlines for Mermaid v11 compatibility
+        code = code.replace(";", "\n")
+
+        # Clean up extra whitespace and blank lines
+        lines = [line.strip() for line in code.split("\n") if line.strip()]
+
+        # Remove problematic characters from bracket labels: [label text]
+        cleaned_lines = []
+        for line in lines:
+            # Strip parentheses, colons, quotes from inside square bracket labels
+            line = re.sub(
+                r'\[([^\]]*)\]',
+                lambda m: '[' + re.sub(r'[()":;\'`]', '', m.group(1)).strip() + ']',
+                line,
+            )
+            cleaned_lines.append(line)
+
+        result = "\n".join(cleaned_lines)
+        return result
 
     # ------------------------------------------------------------------ #
     # Slide refinement
@@ -301,6 +356,11 @@ Begin your output immediately with the opening '{' of the JSON object.
             raise ValueError(
                 f"Expected a JSON object from the model, but received: "
                 f"{type(refined).__name__}"
+            )
+        # Sanitise diagram_code for Mermaid v11 compatibility
+        if refined.get("diagram_code"):
+            refined["diagram_code"] = self._sanitize_diagram_code(
+                refined["diagram_code"]
             )
 
         return refined
