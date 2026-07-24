@@ -154,3 +154,45 @@ export async function exportPresentation(
   }
 }
 
+/**
+ * Downloads a presentation as an editable PowerPoint (.pptx) file.
+ * The backend returns binary PPTX data, so we use `responseType: 'blob'`
+ * and trigger a browser download via a temporary object URL.
+ *
+ * @param presentationId - UUID of the presentation to export.
+ */
+export async function exportToPPTX(presentationId: string): Promise<void> {
+  try {
+    const response = await apiClient.get(`history/${presentationId}/export/pptx/`, {
+      responseType: 'blob',
+    });
+
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fafanua_presentation_${presentationId}.pptx`;
+    document.body.appendChild(link);
+    link.click();
+
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (err) {
+    const axiosErr = err as AxiosError;
+    if (axiosErr.response?.data instanceof Blob) {
+      try {
+        const text = await axiosErr.response.data.text();
+        const json = JSON.parse(text) as ApiError;
+        if (json.detail) throw new Error(json.detail);
+      } catch (parseErr) {
+        if (parseErr instanceof Error && parseErr.message !== 'Unexpected token') {
+          throw parseErr;
+        }
+      }
+    }
+    throw new Error(extractErrorMessage(err));
+  }
+}
+

@@ -45,6 +45,14 @@ const themeStyles: Record<
     refineBtn:
       'text-emerald-400/50 hover:text-emerald-300 hover:bg-emerald-800/40 border-emerald-600/30',
   },
+  analytical: {
+    wrapper:
+      'bg-purple-950/40 border border-purple-700/50 hover:border-purple-400/70',
+    badge:   'bg-purple-800/60 text-purple-300 ring-1 ring-purple-600/40',
+    dot:     'bg-purple-400',
+    refineBtn:
+      'text-purple-400/50 hover:text-purple-300 hover:bg-purple-800/40 border-purple-600/30',
+  },
 };
 
 export default function SlideCard({ slide, index, onRefineClick }: SlideCardProps) {

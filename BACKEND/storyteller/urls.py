@@ -19,6 +19,7 @@ from .views import (
     PresentationDetailView,
     PresentationExportView,
     PresentationListView,
+    PresentationPPTXExportView,
     SlideRefineView,
 )
 
@@ -44,6 +45,11 @@ urlpatterns = [
         "history/<uuid:pk>/export/",
         PresentationExportView.as_view(),
         name="presentation-export",
+    ),
+    path(
+        "history/<uuid:pk>/export/pptx/",
+        PresentationPPTXExportView.as_view(),
+        name="presentation-export-pptx",
     ),
     path(
         "history/<uuid:presentation_pk>/slides/<int:slide_id>/refine/",

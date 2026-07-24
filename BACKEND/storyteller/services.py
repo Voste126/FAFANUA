@@ -24,33 +24,27 @@ logger = logging.getLogger(__name__)
 # Zero-shot system prompt — model is instructed to output ONLY raw JSON.
 # ---------------------------------------------------------------------------
 _SYSTEM_PROMPT = """\
-You are a Technical Storyteller and expert presentation architect.
-Your sole task is to transform dense technical text into a structured,
-human-centered slide deck represented as a strict JSON array.
+You are a Senior Principal Engineer and Technical Architect. Your task is to convert the user's raw technical text, code snippets, or system logs into a highly detailed, professional presentation slide deck.
 
-Rules you MUST follow without exception:
-1. Output ONLY a raw JSON array. No markdown fences, no prose, no commentary.
-2. Every element of the array must be a JSON object with exactly four keys:
-   - "title"         : string  — a concise, punchy slide title.
-   - "bullet_points" : array   — 3 to 5 short, audience-friendly bullet points.
-   - "theme_variant" : string  — MUST be one of: "warm", "bold", or "clean".
-     Assign themes meaningfully: "warm" for introductions/context, "bold" for
-     key breakthroughs/results, "clean" for details/specifications.
-   - "diagram_code"  : string  — If this slide describes a process, workflow,
-      data flow, or system architecture, provide a VALID Mermaid.js diagram.
-      CRITICAL Mermaid rules:
-      a) Start with "graph TD" on its own, then use semicolons to separate statements.
-      b) Use single-letter or short alphanumeric node IDs with NO spaces or numbers
-         in the ID itself: A, B, C, SvcA — NOT "Service 1" as an ID.
-      c) Put human-readable labels inside square brackets: A[API Gateway]
-      d) Use ONLY "-->" for arrows. Do NOT use "---", "-.->" or other edge types.
-      e) Keep labels to 1-3 words. No special characters in labels (no parentheses,
-         quotes, colons, or semicolons inside the square brackets).
-      f) Maximum 6 nodes.
-      g) Example: "graph TD; A[Frontend] --> B[API Gateway]; B --> C[Backend]; C --> D[Database]"
-      If no diagram is appropriate for this slide, return an empty string "".
-3. Generate between 4 and 8 slides.
-4. Bullet points must be human-readable sentences, not raw code or jargon.
+CRITICAL INSTRUCTIONS:
+1. DYNAMIC LENGTH: Do NOT automatically generate 5 slides. Analyze the density of the input and generate as many slides as necessary to properly cover the material (e.g., anywhere from 3 to 12 slides).
+2. TECHNICAL DEPTH: Do not abstract away or "dumb down" the content. Retain specific metrics, library names, bottlenecks, architecture nuances, and code references mentioned in the text. Bullet points must be deep, data-backed technical statements, not generic summaries.
+3. ADVANCED DIAGRAMS: For slides describing architecture, data flows, or processes, generate a detailed Mermaid.js string in the 'diagram_code' field.
+   - Do NOT make simple A --> B diagrams.
+   - Use `subgraph` to group related components (e.g., Frontend, Backend, Cloud, Database) when appropriate.
+   - Add descriptive labels to your arrows (e.g., `A -->|REST API| B` or `Client -->|HTTPS/JSON| Gateway`).
+   - Use appropriate diagram types (`graph TB`, `graph TD`, `sequenceDiagram`).
+   - Ensure node IDs contain NO spaces or special characters (e.g., use `A[API Gateway]`, `Svc1[Auth Service]`).
+   - If no diagram fits the slide, leave 'diagram_code' as an empty string "".
+4. FORMAT: You MUST return ONLY a valid JSON array of objects. Do NOT include markdown code formatting (like ```json or ```), no conversational preamble (such as "Here is your JSON:"), and no commentary.
+
+JSON Schema per object:
+{
+  "title": "Specific, technical slide title",
+  "bullet_points": ["Deep technical point 1", "Data-backed point 2", "Detailed point 3"],
+  "theme_variant": "warm", // Choose from: warm, bold, clean, analytical
+  "diagram_code": "graph TD; ... (or empty string)"
+}
 
 Begin your output immediately with the opening '[' of the JSON array.
 """
@@ -123,7 +117,7 @@ class WatsonxService:
                 GenParams.MAX_NEW_TOKENS: 2048,
                 GenParams.TEMPERATURE: 0.3,
                 GenParams.TOP_P: 0.9,
-                GenParams.STOP_SEQUENCES: [],
+                GenParams.STOP_SEQUENCES: ["TECHNICAL CONTENT TO TRANSFORM:", "\nTECHNICAL CONTENT"],
             },
         )
 
@@ -145,6 +139,7 @@ class WatsonxService:
         try:
             response: str = model.generate_text(prompt=prompt)
         except Exception as exc:
+            print(f"Watsonx API Error: {str(exc)}")
             logger.exception("watsonx.ai API call failed: %s", exc)
             raise RuntimeError(
                 f"The IBM watsonx.ai API returned an error: {exc}"
@@ -153,23 +148,7 @@ class WatsonxService:
         raw_text: str = response.strip()
         logger.debug("Raw model response: %s", raw_text)
 
-        # Guard: strip accidental markdown code fences if the model ignores rules.
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
-
-        try:
-            slides: list[dict[str, Any]] = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            logger.error(
-                "Failed to parse model response as JSON. Raw response: %s", raw_text
-            )
-            raise ValueError(
-                f"Model did not return valid JSON. Parse error: {exc}. "
-                f"Raw response (first 500 chars): {raw_text[:500]}"
-            ) from exc
+        slides = self._extract_and_parse_json(raw_text, expected_type=list)
 
         if not isinstance(slides, list):
             raise ValueError(
@@ -183,11 +162,57 @@ class WatsonxService:
                     slide["diagram_code"]
                 )
 
-        return slides
+        return slides    # ------------------------------------------------------------------ #
+    # JSON extraction and sanitisation helpers
+    # ------------------------------------------------------------------ #
 
-    # ------------------------------------------------------------------ #
-    # Mermaid diagram sanitisation
-    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _extract_and_parse_json(text: str, expected_type: type = list) -> Any:
+        """Extracts and parses the first JSON array or object from raw LLM output.
+
+        Handles:
+        - Markdown code blocks (```json ... ```).
+        - Conversational text preceding the JSON.
+        - Repeated prompt text / few-shot loops trailing after the first JSON object or array.
+        """
+        raw_text = text.strip()
+
+        # Guard 1: Strip markdown code blocks if present
+        if "```" in raw_text:
+            parts = raw_text.split("```")
+            for part in parts:
+                clean_part = part.strip()
+                if clean_part.startswith("json"):
+                    clean_part = clean_part[4:].strip()
+                if (expected_type is list and clean_part.startswith("[")) or (
+                    expected_type is dict and clean_part.startswith("{")
+                ):
+                    raw_text = clean_part
+                    break
+
+        # Guard 2: Locate start of array '[' or object '{'
+        start_char = "[" if expected_type is list else "{"
+        start_idx = raw_text.find(start_char)
+        if start_idx != -1:
+            raw_text = raw_text[start_idx:]
+
+        # Guard 3: Use JSONDecoder.raw_decode to parse ONLY the first JSON structure,
+        # completely ignoring trailing repeated prompt text, extra data, or hallucinated text.
+        decoder = json.JSONDecoder()
+        try:
+            data, _ = decoder.raw_decode(raw_text)
+            return data
+        except json.JSONDecodeError:
+            # Fallback to standard json.loads if raw_decode fails
+            try:
+                return json.loads(raw_text)
+            except json.JSONDecodeError as exc:
+                print(f"Watsonx JSON Decode Error: {exc}. Raw output: {text[:500]}")
+                logger.error("Failed to parse model response as JSON. Raw: %s", text)
+                raise ValueError(
+                    f"Model did not return valid JSON. Parse error: {exc}. "
+                    f"Raw response (first 500 chars): {text[:500]}"
+                ) from exc
 
     @staticmethod
     def _sanitize_diagram_code(code: str) -> str:
@@ -213,6 +238,9 @@ class WatsonxService:
         # Remove problematic characters from bracket labels: [label text]
         cleaned_lines = []
         for line in lines:
+            # Fix accidental |> in arrow labels to standard |
+            line = re.sub(r'\|>(\s*[\w\[])', r'|\1', line)
+
             # Strip parentheses, colons, quotes from inside square bracket labels
             line = re.sub(
                 r'\[([^\]]*)\]',
@@ -229,25 +257,29 @@ class WatsonxService:
     # ------------------------------------------------------------------ #
 
     _REFINE_PROMPT = """\
-You are a Technical Storyteller refining a single presentation slide.
-You will receive the CURRENT slide as JSON and a user INSTRUCTION describing
-what should change.
+You are a Senior Principal Engineer refining a single presentation slide.
+You will receive the CURRENT slide as JSON and a user INSTRUCTION describing what should change.
 
-Rules you MUST follow without exception:
-1. Output ONLY a single raw JSON object. No markdown fences, no prose, no array.
-2. The JSON object must have exactly four keys:
-   - "title"         : string  — a concise, punchy slide title.
-   - "bullet_points" : array   — 3 to 5 short, audience-friendly bullet points.
-   - "theme_variant" : string  — MUST be one of: "warm", "bold", or "clean".
-   - "diagram_code"  : string  — If this slide describes a process, workflow,
-     data flow, or system architecture, provide a VALID Mermaid.js diagram.
-     Use ONLY graph/flowchart syntax (e.g. "graph TD; A[Frontend] --> B[API];").
-     Keep node labels short (1-4 words), do NOT use special characters
-     (parentheses, quotes, brackets) inside labels, and use a maximum of 8 nodes.
-     If no diagram is appropriate, return an empty string "".
-3. Apply the user's instruction faithfully while keeping the slide coherent.
-4. If the instruction does not mention the theme, keep the current theme.
-5. If the instruction does not mention the diagram, keep the current diagram_code.
+CRITICAL INSTRUCTIONS:
+1. TECHNICAL DEPTH: Maintain high technical depth, specific metrics, library names, bottlenecks, and architecture nuances. Do not abstract away or "dumb down" the content.
+2. ADVANCED DIAGRAMS: If refining or generating a diagram in 'diagram_code':
+   - Use subgraphs, descriptive arrow labels (e.g. `A -->|REST API| B`), and clear structure.
+   - Use appropriate types (`graph TB`, `graph TD`, `sequenceDiagram`).
+   - Ensure node IDs contain no spaces or special characters (e.g., `A[API Gateway]`).
+   - If no diagram fits, return an empty string "".
+3. FORMAT: You MUST return ONLY a single raw JSON object. Do NOT include markdown code formatting (like ```json or ```) or any conversational text.
+
+JSON Schema per object:
+{
+  "title": "Specific, technical slide title",
+  "bullet_points": ["Deep technical point 1", "Data-backed point 2", "Detailed point 3"],
+  "theme_variant": "warm", // Choose from: warm, bold, clean, analytical
+  "diagram_code": "graph TD; ... (or empty string)"
+}
+
+4. Apply the user's instruction faithfully while keeping the slide coherent and technically rigorous.
+5. If the instruction does not mention the theme, keep the current theme.
+6. If the instruction does not mention the diagram, keep the current diagram_code.
 
 Begin your output immediately with the opening '{' of the JSON object.
 """
@@ -324,23 +356,7 @@ Begin your output immediately with the opening '{' of the JSON object.
         raw_text: str = response.strip()
         logger.debug("Raw refinement response: %s", raw_text)
 
-        # Guard: strip accidental markdown code fences.
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-            raw_text = raw_text.strip()
-
-        try:
-            refined: dict[str, Any] = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            logger.error(
-                "Failed to parse refinement response as JSON. Raw: %s", raw_text
-            )
-            raise ValueError(
-                f"Model did not return valid JSON. Parse error: {exc}. "
-                f"Raw response (first 500 chars): {raw_text[:500]}"
-            ) from exc
+        refined = self._extract_and_parse_json(raw_text, expected_type=dict)
 
         # The model may occasionally wrap the object in an array.
         if isinstance(refined, list):

@@ -27,6 +27,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Presentation, Slide
+from .pptx_service import PPTXGenerator
 from .serializers import PresentationSerializer, SlideSerializer
 from .services import WatsonxService
 
@@ -255,7 +256,11 @@ class GeneratePresentationView(APIView):
             # Misconfigured server — watsonx credentials not set in .env
             logger.error("WatsonxService configuration error: %s", exc)
             return Response(
-                {"detail": f"Server configuration error: {exc}"},
+                {
+                    "error": "Failed to generate presentation",
+                    "detail": f"Server configuration error: {exc}",
+                    "details": str(exc),
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -264,10 +269,9 @@ class GeneratePresentationView(APIView):
             logger.error("watsonx.ai upstream error: %s", exc)
             return Response(
                 {
-                    "detail": (
-                        "The AI service returned an error. "
-                        "Please try again in a moment."
-                    ),
+                    "error": "Failed to generate presentation",
+                    "detail": "The AI service returned an error. Please try again in a moment.",
+                    "details": str(exc),
                     "upstream_error": str(exc),
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
@@ -278,13 +282,24 @@ class GeneratePresentationView(APIView):
             logger.error("JSON parse error from model response: %s", exc)
             return Response(
                 {
-                    "detail": (
-                        "The AI model returned an unexpected response format. "
-                        "This is likely transient — please retry your request."
-                    ),
+                    "error": "Failed to generate presentation",
+                    "detail": "The AI model returned an unexpected response format.",
+                    "details": str(exc),
                     "parse_error": str(exc),
                 },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        except Exception as exc:
+            # Fallback for any unhandled exception to prevent HTML 500 error page
+            logger.exception("Unexpected error during presentation generation: %s", exc)
+            return Response(
+                {
+                    "error": "Failed to generate presentation",
+                    "detail": "An unexpected error occurred during presentation generation.",
+                    "details": str(exc),
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
             )
 
         # ------------------------------------------------------------------ #
@@ -830,5 +845,36 @@ class PresentationExportView(APIView):
         response = HttpResponse(pdf_value, content_type="application/pdf")
         response["Content-Disposition"] = (
             f'attachment; filename="fafanua_presentation_{presentation.id}.pdf"'
+        )
+        return response
+
+
+class PresentationPPTXExportView(APIView):
+    """
+    Exports a presentation as a downloadable PowerPoint (.pptx) file.
+    GET /api/history/<uuid:pk>/export/pptx/
+    """
+
+    @swagger_auto_schema(
+        operation_summary="Export presentation as PowerPoint (.pptx)",
+        operation_description="Generates a downloadable PowerPoint presentation (.pptx) file with theme styling.",
+        responses={
+            200: openapi.Response(
+                description="Binary PPTX file stream.",
+                schema=openapi.Schema(type=openapi.TYPE_FILE),
+            ),
+            404: "Presentation not found.",
+        },
+    )
+    def get(self, request: Request, pk: str) -> HttpResponse:
+        presentation = get_object_or_404(Presentation, pk=pk)
+        buffer = PPTXGenerator().generate_presentation(presentation)
+
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="Fafanua_Presentation_{presentation.id}.pptx"'
         )
         return response

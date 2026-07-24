@@ -17,6 +17,7 @@ import {
   Plus,
   ArrowLeft,
   Download,
+  MonitorPlay,
 } from 'lucide-react';
 
 import {
@@ -25,6 +26,7 @@ import {
   fetchPresentation,
   refineSlide,
   exportPresentation,
+  exportToPPTX,
 } from './services/api';
 import SlideCard from './components/SlideCard';
 import SkeletonLoader from './components/SkeletonLoader';
@@ -100,6 +102,7 @@ export default function App() {
 
   // ----- Export state -----
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [isExportingPPTX, setIsExportingPPTX] = useState<boolean>(false);
 
   // ----- Load history on mount -----
   const loadHistory = useCallback(async () => {
@@ -225,6 +228,20 @@ export default function App() {
       setError((err as Error).message);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleExportPPTX = async () => {
+    if (!activePresentationId) return;
+
+    setIsExportingPPTX(true);
+    setError(null);
+    try {
+      await exportToPPTX(activePresentationId);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setIsExportingPPTX(false);
     }
   };
 
@@ -466,6 +483,35 @@ export default function App() {
                           <>
                             <Download className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">Export PDF</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                    {/* Export to PPTX button — visible when we have an active presentation with slides */}
+                    {activePresentationId && slides.length > 0 && (
+                      <button
+                        id="export-pptx-btn"
+                        onClick={handleExportPPTX}
+                        disabled={isExportingPPTX}
+                        className="
+                          flex items-center gap-1.5 px-3 py-1.5 rounded-lg
+                          text-xs font-semibold
+                          text-purple-400/70 border border-purple-500/25 bg-purple-500/[0.06]
+                          hover:text-purple-300 hover:border-purple-500/40 hover:bg-purple-500/[0.10]
+                          disabled:opacity-40 disabled:cursor-not-allowed
+                          transition-all duration-200
+                        "
+                        title="Export presentation as PowerPoint (.pptx)"
+                      >
+                        {isExportingPPTX ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Exporting…
+                          </>
+                        ) : (
+                          <>
+                            <MonitorPlay className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Download PPTX</span>
                           </>
                         )}
                       </button>

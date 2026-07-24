@@ -5,8 +5,8 @@
  * These mirror the exact JSON schema returned by the Django API endpoints.
  */
 
-/** The three visual theme variants the AI can assign to a slide. */
-export type ThemeVariant = 'warm' | 'bold' | 'clean';
+/** The visual theme variants the AI can assign to a slide. */
+export type ThemeVariant = 'warm' | 'bold' | 'clean' | 'analytical';
 
 /** A single presentation slide as returned by the Granite model. */
 export interface Slide {
